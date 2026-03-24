@@ -1,0 +1,616 @@
+---
+title: "Eksplorasi AED Final"
+author: "Abdullah' Ammar Rabbaniyyin_M0401241066"
+date: "2026-03-07"
+output: rmdformats::readthedown
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(psych)
+library(moments)
+library(nortest)
+library(tidyr)
+library(patchwork)
+library(FSA)
+```
+
+# Impoer Data
+
+```{r}
+data <- read_csv("D:\\Mine\\Kuliah Journey\\Semester 4\\Analisis Eksplorasi Data\\susenas_depok_merged_FIX_FIX.csv")
+data
+```
+
+```{r}
+str(data)
+```
+
+```{r}
+summary(data)
+```
+
+```{r}
+describe(data)
+```
+
+```{r}
+colSums(is.na(data))
+```
+
+# Sebaran Kapita
+
+```{r}
+ggplot(data, aes(x = KAPITA)) +
+geom_histogram(bins = 100) +
+theme_minimal()
+```
+
+# Melihat outlier
+
+```{r}
+ggplot(data, aes(y = KAPITA)) +
+geom_boxplot() +
+theme_minimal()
+```
+
+# Uji Kolmogorov Smirnov
+
+```{r}
+# Identifikasi variabel numerik
+numeric_vars <- names(data)[sapply(data, is.numeric)]
+
+# Membandingkan distribusi data dengan distribusi normal (pnorm)
+lakukan_ks <- function(column_name) {
+  x <- data[[column_name]]
+
+  # Jika standar deviasi 0, uji tidak bisa dilakukan
+  if (sd(x) > 0) {
+    test <- ks.test(x, "pnorm", mean(x), sd(x))
+    return(data.frame(
+      Variable = column_name,
+      Statistic = test$statistic,
+      p_value = test$p.value,
+      Kesimpulan = ifelse(test$p.value > 0.05, "Normal", "Tidak Normal")
+    ))
+  } else {
+    return(NULL)
+  }
+}
+
+hasil_ks <- do.call(rbind, lapply(numeric_vars, lakukan_ks))
+print(hasil_ks)
+```
+Hasil uji normalitas menggunakan Kolmogorov Smirnov menunjukkan nilai p-value \< 0.05 untuk seluruh variabel. Artinya, seluruh variabel tidak berdstribusi normal yang merupakan karakteristik umum pada data survei sosial-ekonomi (Susenas) yang memiliki keragaman tinggi. Oleh karena itu, seluruh pengujian hipotesis dalam penelitian ini dilakukan menggunakan pendekatan statistik non-parametrik.
+
+# Sebaran Kesejahteraan per Kategori Aset
+
+```{r}
+asset_map <- c(
+  "R2001B" = "Kulkas",
+  "R2001C" = "AC",
+  "R2001D" = "Water Heater",
+  "R2001F" = "Komputer",
+  "R2001G" = "Emas",
+  "R2001H" = "Motor",
+  "R2001K" = "Mobil",
+  "R2001M" = "Tanah"
+)
+
+df_long <- data %>%
+  filter(Banyak_Anak %in% c(0, 1, 2, 3, 4, 5, 6)) %>%
+  # Mengambil kolom identitas dan kolom aset
+  select(URUT, Banyak_Anak, KAPITA, all_of(names(asset_map))) %>%
+  # Mengubah format menjadi satu kolom 'Kategori' dan satu kolom 'Status'
+  pivot_longer(cols = all_of(names(asset_map)), 
+               names_to = "Asset_Code", 
+               values_to = "Status") %>%
+  # Filter hanya untuk yang memiliki aset (Status == 1)
+  filter(Status == 1) %>%
+  # Memberi nama kategori yang lebih mudah dibaca
+  mutate(Kategori_Aset = asset_map[Asset_Code],
+         Banyak_Anak = as.factor(Banyak_Anak))
+
+ggplot(df_long, aes(x = Kategori_Aset, y = KAPITA, fill = Banyak_Anak)) +
+  geom_boxplot(outlier.alpha = 0.5) +
+  scale_y_log10() + # Menggunakan skala log agar sebaran lebih terlihat jelas
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Sebaran Tingkat Kesejahteraan per Kategori Aset",
+       subtitle = "Berdasarkan keluarga pemilik aset (Status=1)",
+       x = "Kategori Aset",
+       y = "Pengeluaran per Kapita (Skala Log)",
+       fill = "Jumlah Anak") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+Terlihat adanya trade-off ekonomi yang nyata. Keluarga dengan jumlah anak yang lebih sedikit (0-2 anak) secara konsisten memiliki median pengeluaran per kapita yang lebih tinggi di seluruh kategori aset dibandingkan keluarga besar (5-6 anak). Hal ini memperkuat temuan bahwa pertambahan jumlah anak cenderung mendistribusikan sumber daya rumah tangga ke lebih banyak anggota, sehingga menurunkan rata-rata kesejahteraan per individu.
+
+# Perbandingan Porsi Anggaran Makanan (%) vs Jumlah Anak
+
+```{r}
+df_insight <- data %>%
+  filter(Banyak_Anak <= 6) %>%
+  mutate(Food_Share = (FOOD / EXPEND) * 100,
+         Banyak_Anak = as.factor(Banyak_Anak))
+ggplot(df_insight, aes(x = Banyak_Anak, y = Food_Share, fill = Banyak_Anak)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Pastel1") +
+  labs(title = "Perbandingan Sebaran Porsi Anggaran Makanan (%) vs Jumlah Anak",
+       subtitle = "Semakin tinggi box, semakin besar beban biaya hidup dasar",
+       x = "Jumlah Anak", y = "Persentase Anggaran untuk Makanan (%)") +
+  theme_minimal()
+```
+Peningkatan jumlah anak berkorelasi positif dengan besarnya beban biaya hidup dasar, di mana persentase anggaran untuk makanan cenderung meningkat seiring bertambahnya jumlah anggota keluarga. Lonjakan drastis terlihat pada keluarga dengan 4 hingga 6 anak, dengan kelompok 6 anak mencapai titik tertinggi di angka median sekitar 65-70%. Hal ini mengindikasikan bahwa semakin banyak jumlah anak, semakin besar tekanan finansial yang dihadapi rumah tangga untuk memenuhi kebutuhan pangan pokok, sehingga menyisakan ruang anggaran yang lebih sempit untuk kebutuhan non-pangan lainnya seperti pendidikan, kesehatan, atau tabungan.
+
+# Sebaran Jumlah Anak dan Proporsi Kepemilikan Aset per Jumlah Anak
+
+## Emas \>= 10gram
+
+```{r}
+# Boxplot
+df_plot <- data %>%
+  mutate(Status_Emas = ifelse(R2001G == 1, "Ya", "Tidak")) %>%
+  filter(!is.na(Status_Emas))
+
+ggplot(df_plot, aes(x = Status_Emas, y = Banyak_Anak, fill = Status_Emas)) +
+  geom_boxplot(width = 0.5) +
+  scale_fill_manual(values = c("Ya" = "#4DAF4A", "Tidak" = "#E41A1C")) +
+  labs(title = "Sebaran Jumlah Anak Berdasarkan Kepemilikan Emas",
+       subtitle = "X = Status Kepemilikan, Y = Jumlah Anak",
+       x = "Apakah Memiliki Emas (>= 10 gram)?",
+       y = "Jumlah Anak dalam Keluarga",
+       fill = "Status") +
+  theme_minimal()
+
+df_plot %>%
+  group_by(Status_Emas) %>%
+  summarise(
+    Rata_rata_Anak = mean(Banyak_Anak, na.rm = TRUE),
+    Median_Anak = median(Banyak_Anak, na.rm = TRUE),
+    Jumlah_Sampel = n()
+  )
+
+df_emas_pie <- data %>%
+  filter(Banyak_Anak <= 6) %>%
+  # Mengubah kode 1 menjadi "Ya" dan 5 menjadi "Tidak"
+  mutate(Status_Emas = ifelse(R2001G == 1, "Ya", "Tidak"),
+         Banyak_Anak_Label = paste(Banyak_Anak, "Anak")) %>%
+  filter(!is.na(Status_Emas)) %>%
+  # Hitung jumlah per kelompok
+  group_by(Banyak_Anak_Label, Status_Emas) %>%
+  summarise(Total = n(), .groups = 'drop') %>%
+  # Hitung persentase per kelompok anak
+  group_by(Banyak_Anak_Label) %>%
+  mutate(Proporsi = Total / sum(Total),
+         Label_Persen = paste0(round(Proporsi * 100, 0), "%"))
+
+# Plotting Multi-Pie Chart
+ggplot(df_emas_pie, aes(x = "", y = Total, fill = Status_Emas)) +
+  geom_bar(stat = "identity", width = 1, color = "white", position = position_fill()) +
+  coord_polar("y", start = 0) +
+  facet_wrap(~Banyak_Anak_Label, ncol = 3) +
+  
+  geom_text(aes(label = Label_Persen), 
+            position = position_fill(vjust = 0.5), 
+            size = 2, 
+            color = "white", fontface = "bold") +
+  
+  scale_fill_manual(values = c("Ya" = "#4DAF4A", "Tidak" = "#E41A1C")) +
+  
+  theme_void() +
+  theme(strip.text = element_text(size = 10, face = "bold"),
+        legend.position = "right",
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5, margin = margin(b = 20))) +
+  
+  labs(title = "Proporsi Kepemilikan Emas per Kelompok Anak",
+       fill = "Memiliki Emas >= 10gram?")
+```
+Secara keseluruhan, tidak terdapat perbedaan signifikan pada jumlah anak antara keluarga yang memiliki emas dan yang tidak memiliki emas. Perbedaan kecil hanya terlihat pada pencilan (outliers), di mana kelompok yang tidak memiliki emas memiliki variasi jumlah anak yang lebih ekstrem ke atas (hingga 6 anak), sedangkan kelompok yang memiliki emas memiliki pencilan yang lebih rendah (hingga 4 anak). Jika kita lihat dari proporsi kepemilikannya, terdapat ambang batas kemampuan finansial yang nyata. Ketika jumlah anak mencapai 5 atau lebih, kapasitas keluarga untuk memiliki aset investasi (emas $\ge$ 10 gram) hilang sepenuhnya, kemungkinan besar karena seluruh pendapatan dialihkan untuk biaya hidup dasar yang sangat tinggi.
+
+## Motor
+
+```{r}
+# Boxplot
+df_plot <- data %>%
+  mutate(Status_Emas = ifelse(R2001H == 1, "Ya", "Tidak")) %>%
+  filter(!is.na(Status_Emas))
+
+ggplot(df_plot, aes(x = Status_Emas, y = Banyak_Anak, fill = Status_Emas)) +
+  geom_boxplot(width = 0.5) +
+  scale_fill_manual(values = c("Ya" = "#4DAF4A", "Tidak" = "#E41A1C")) +
+  labs(title = "Sebaran Jumlah Anak Berdasarkan Kepemilikan Motor",
+       subtitle = "X = Status Kepemilikan, Y = Jumlah Anak",
+       x = "Apakah Memiliki Motor?",
+       y = "Jumlah Anak dalam Keluarga",
+       fill = "Status") +
+  theme_minimal()
+
+df_plot %>%
+  group_by(Status_Emas) %>%
+  summarise(
+    Rata_rata_Anak = mean(Banyak_Anak, na.rm = TRUE),
+    Median_Anak = median(Banyak_Anak, na.rm = TRUE),
+    Jumlah_Sampel = n()
+  )
+
+df_emas_pie <- data %>%
+  filter(Banyak_Anak <= 6) %>%
+  # Mengubah kode 1 menjadi "Ya" dan 5 menjadi "Tidak"
+  mutate(Status_Emas = ifelse(R2001H == 1, "Ya", "Tidak"),
+         Banyak_Anak_Label = paste(Banyak_Anak, "Anak")) %>%
+  filter(!is.na(Status_Emas)) %>%
+  # Hitung jumlah per kelompok
+  group_by(Banyak_Anak_Label, Status_Emas) %>%
+  summarise(Total = n(), .groups = 'drop') %>%
+  # Hitung persentase per kelompok anak
+  group_by(Banyak_Anak_Label) %>%
+  mutate(Proporsi = Total / sum(Total),
+         Label_Persen = paste0(round(Proporsi * 100, 0), "%"))
+
+# Plotting Multi-Pie Chart
+ggplot(df_emas_pie, aes(x = "", y = Total, fill = Status_Emas)) +
+  geom_bar(stat = "identity", width = 1, color = "white", position = position_fill()) +
+  coord_polar("y", start = 0) +
+  facet_wrap(~Banyak_Anak_Label, ncol = 3) +
+  
+  geom_text(aes(label = Label_Persen), 
+            position = position_fill(vjust = 0.5), 
+            size = 2, 
+            color = "white", fontface = "bold") +
+  
+  scale_fill_manual(values = c("Ya" = "#4DAF4A", "Tidak" = "#E41A1C")) +
+  
+  theme_void() +
+  theme(strip.text = element_text(size = 10, face = "bold"),
+        legend.position = "right",
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5, margin = margin(b = 20))) +
+  
+  labs(title = "Proporsi Kepemilikan Motor per Kelompok Anak",
+       fill = "Memiliki Motor?")
+```
+Secara keseluruhan, boxplot ini menunjukkan bahwa kepemilikan motor merupakan barang sekunder yang sulit dijangkau bagi keluarga dengan beban anak yang sangat besar. Berdasarkan proporsi, terjadi penurunan drastis kepemilikan motor pada keluarga dengan anak berjumlah 5-6. Kemungkinan mereka tidak memiliki sisa uang sama sekali untuk membeli atau memelihara motor karena semua pemasukan dialokasikan ke makanan. 
+
+## Mobil
+
+```{r}
+# Boxplot
+df_plot <- data %>%
+  mutate(Status_Emas = ifelse(R2001K == 1, "Ya", "Tidak")) %>%
+  filter(!is.na(Status_Emas))
+
+ggplot(df_plot, aes(x = Status_Emas, y = Banyak_Anak, fill = Status_Emas)) +
+  geom_boxplot(width = 0.5) +
+  scale_fill_manual(values = c("Ya" = "#4DAF4A", "Tidak" = "#E41A1C")) +
+  labs(title = "Sebaran Jumlah Anak Berdasarkan Kepemilikan Mobil",
+       subtitle = "X = Status Kepemilikan, Y = Jumlah Anak",
+       x = "Apakah Memiliki Mobil?",
+       y = "Jumlah Anak dalam Keluarga",
+       fill = "Status") +
+  theme_minimal()
+
+df_plot %>%
+  group_by(Status_Emas) %>%
+  summarise(
+    Rata_rata_Anak = mean(Banyak_Anak, na.rm = TRUE),
+    Median_Anak = median(Banyak_Anak, na.rm = TRUE),
+    Jumlah_Sampel = n()
+  )
+
+df_emas_pie <- data %>%
+  filter(Banyak_Anak <= 6) %>%
+  # Mengubah kode 1 menjadi "Ya" dan 5 menjadi "Tidak"
+  mutate(Status_Emas = ifelse(R2001K == 1, "Ya", "Tidak"),
+         Banyak_Anak_Label = paste(Banyak_Anak, "Anak")) %>%
+  filter(!is.na(Status_Emas)) %>%
+  # Hitung jumlah per kelompok
+  group_by(Banyak_Anak_Label, Status_Emas) %>%
+  summarise(Total = n(), .groups = 'drop') %>%
+  # Hitung persentase per kelompok anak
+  group_by(Banyak_Anak_Label) %>%
+  mutate(Proporsi = Total / sum(Total),
+         Label_Persen = paste0(round(Proporsi * 100, 0), "%"))
+
+# Plotting Multi-Pie Chart
+ggplot(df_emas_pie, aes(x = "", y = Total, fill = Status_Emas)) +
+  geom_bar(stat = "identity", width = 1, color = "white", position = position_fill()) +
+  coord_polar("y", start = 0) +
+  facet_wrap(~Banyak_Anak_Label, ncol = 3) +
+  
+  geom_text(aes(label = Label_Persen), 
+            position = position_fill(vjust = 0.5), 
+            size = 2, 
+            color = "white", fontface = "bold") +
+  
+  scale_fill_manual(values = c("Ya" = "#4DAF4A", "Tidak" = "#E41A1C")) +
+  
+  theme_void() +
+  theme(strip.text = element_text(size = 10, face = "bold"),
+        legend.position = "right",
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5, margin = margin(b = 20))) +
+  
+  labs(title = "Proporsi Kepemilikan Mobil per Kelompok Anak",
+       fill = "Memiliki Mobil?")
+```
+Berdasarkan boxplot, tidak terdapat perbedaan yang signifikan. Perbedaan kecil hanya terlihat pada pencilan (outliers), di mana kelompok yang tidak memiliki mobil memiliki jumlah anak sampai 6, sedangkan untuk yang memiliki mobil 5. Berdasarkan proporsi, kita dapat melihat bahwa semakin banyak anak, semakin banyak kebutuhan pokok yang perlu dipenuhi sehingga pada kelompok 6 anak, tidak ada yang memiliki mobil. 
+
+```{r}
+# Boxplot
+df_plot <- data %>%
+  mutate(Status_Emas = ifelse(R2001M == 1, "Ya", "Tidak")) %>%
+  filter(!is.na(Status_Emas))
+
+ggplot(df_plot, aes(x = Status_Emas, y = Banyak_Anak, fill = Status_Emas)) +
+  geom_boxplot(width = 0.5) +
+  scale_fill_manual(values = c("Ya" = "#4DAF4A", "Tidak" = "#E41A1C")) +
+  labs(title = "Sebaran Jumlah Anak Berdasarkan Kepemilikan Tanah",
+       subtitle = "X = Status Kepemilikan, Y = Jumlah Anak",
+       x = "Apakah Memiliki Tanah?",
+       y = "Jumlah Anak dalam Keluarga",
+       fill = "Status") +
+  theme_minimal()
+
+df_plot %>%
+  group_by(Status_Emas) %>%
+  summarise(
+    Rata_rata_Anak = mean(Banyak_Anak, na.rm = TRUE),
+    Median_Anak = median(Banyak_Anak, na.rm = TRUE),
+    Jumlah_Sampel = n()
+  )
+
+df_emas_pie <- data %>%
+  filter(Banyak_Anak <= 6) %>%
+  # Mengubah kode 1 menjadi "Ya" dan 5 menjadi "Tidak"
+  mutate(Status_Emas = ifelse(R2001M == 1, "Ya", "Tidak"),
+         Banyak_Anak_Label = paste(Banyak_Anak, "Anak")) %>%
+  filter(!is.na(Status_Emas)) %>%
+  # Hitung jumlah per kelompok
+  group_by(Banyak_Anak_Label, Status_Emas) %>%
+  summarise(Total = n(), .groups = 'drop') %>%
+  # Hitung persentase per kelompok anak
+  group_by(Banyak_Anak_Label) %>%
+  mutate(Proporsi = Total / sum(Total),
+         Label_Persen = paste0(round(Proporsi * 100, 0), "%"))
+
+# Plotting Multi-Pie Chart
+ggplot(df_emas_pie, aes(x = "", y = Total, fill = Status_Emas)) +
+  geom_bar(stat = "identity", width = 1, color = "white", position = position_fill()) +
+  coord_polar("y", start = 0) +
+  facet_wrap(~Banyak_Anak_Label, ncol = 3) +
+  
+  geom_text(aes(label = Label_Persen), 
+            position = position_fill(vjust = 0.5), 
+            size = 2, 
+            color = "white", fontface = "bold") +
+  
+  scale_fill_manual(values = c("Ya" = "#4DAF4A", "Tidak" = "#E41A1C")) +
+  
+  theme_void() +
+  theme(strip.text = element_text(size = 10, face = "bold"),
+        legend.position = "right",
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5, margin = margin(b = 20))) +
+  
+  labs(title = "Proporsi Kepemilikan Tanah per Kelompok Anak",
+       fill = "Memiliki Tanah")
+```
+Berdasarkan boxplot, tidak terdapat perbedaan signifikan untuk kepemilikan tanah. Namun, berdasarkan proporsi, uniknya, berbeda dengan aset-aset sebelumnya proporsi keluarga yang memiliki tanah merangkak naik hingga puncaknya pada kelompok 5 anak. Meskipun pengeluaran makanan mereka sangat tinggi (seperti pada grafik pertama), keluarga besar ini ternyata memiliki aset tetap berupa tanah. Hal ini bisa mengindikasikan bahwa keluarga besar tersebut mungkin tinggal di area pedesaan atau memiliki tanah warisan/pertanian yang menopang kehidupan mereka, meskipun secara arus kas bulanan mereka terbebani oleh biaya makan.
+
+# EXPLAIN
+
+```{r}
+# Pemetaan Kode Aset ke Nama yang Jelas
+asset_map <- c(
+  "R2001B" = "Kulkas",
+  "R2001C" = "AC",
+  "R2001D" = "Water Heater",
+  "R2001F" = "Komputer",
+  "R2001G" = "Emas",
+  "R2001H" = "Motor",
+  "R2001K" = "Mobil",
+  "R2001M" = "Tanah"
+)
+
+# Pre-processing dasar: Mengubah 1 (Ya) dan 5 (Tidak) menjadi 1 dan 0
+df_clean <- data %>%
+  mutate(across(all_of(names(asset_map)), ~ ifelse(. == 1, 1, 0))) %>%
+  mutate(Total_Asset_Score = rowSums(select(., all_of(names(asset_map))))) %>%
+  mutate(Food_Share = (FOOD / EXPEND) * 100) %>%
+  filter(Banyak_Anak <= 6) # Fokus pada keluarga dengan 0-6 anak
+
+# ANALISIS 1: SEBARAN TOTAL SKOR ASET (BOXPLOT)
+# Melihat total kepemilikan aset berdasarkan kelompok anak
+p1 <- ggplot(df_clean, aes(x = as.factor(Banyak_Anak), y = Total_Asset_Score, fill = as.factor(Banyak_Anak))) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_brewer(palette = "Set3") +
+  labs(title = "Sebaran Skor Total Aset Berdasarkan Jumlah Anak",
+       x = "Jumlah Anak", y = "Skor Aset (0-8)", fill = "Jumlah Anak") +
+  theme_minimal()
+
+print(p1)
+
+# ANALISIS 2: "BANYAK ANAK BANYAK REZEKI?" (EXPEND vs KAPITA)
+# Membandingkan Total Rezeki Rumah Tangga vs Rezeki per Orang
+p_expend <- ggplot(df_clean, aes(x = as.factor(Banyak_Anak), y = EXPEND, fill = as.factor(Banyak_Anak))) +
+  geom_boxplot(outlier.alpha = 0.3) + scale_y_log10() +
+  labs(title = "Total Pengeluaran (EXPEND)", x = "Jumlah Anak", y = "Nilai (Log)") +
+  theme_minimal() + guides(fill = "none")
+
+p_kapita <- ggplot(df_clean, aes(x = as.factor(Banyak_Anak), y = KAPITA, fill = as.factor(Banyak_Anak))) +
+  geom_boxplot(outlier.alpha = 0.3) + scale_y_log10() +
+  labs(title = "Pengeluaran Per Kapita (KAPITA)", x = "Jumlah Anak", y = "Nilai (Log)") +
+  theme_minimal() + guides(fill = "none")
+
+# Menggabungkan dua grafik
+(p_expend / p_kapita) + plot_annotation(title = "Analisis Kesejahteraan: Total vs Per Kapita")
+
+# ANALISIS 3: TREN PELUANG KEPEMILIKAN ASET (LINE CHART)
+df_trend <- df_clean %>%
+  group_by(Banyak_Anak) %>%
+  summarise(across(all_of(names(asset_map)), ~ mean(.) * 100)) %>%
+  pivot_longer(cols = -Banyak_Anak, names_to = "Asset_Code", values_to = "Persen") %>%
+  mutate(Nama_Aset = asset_map[Asset_Code])
+
+ggplot(df_trend, aes(x = Banyak_Anak, y = Persen, color = Nama_Aset, group = Nama_Aset)) +
+  geom_line(size = 1) + geom_point() +
+  labs(title = "Tren Peluang Memiliki Aset Berdasarkan Jumlah Anak",
+       x = "Jumlah Anak", y = "Persentase Rumah Tangga (%)") +
+  theme_minimal()
+
+# ANALISIS 4: PIE CHART PORTOFOLIO ASET (DENGAN LABEL KECIL)
+df_pie <- df_clean %>%
+  group_by(Banyak_Anak) %>%
+  summarise(across(all_of(names(asset_map)), sum)) %>%
+  pivot_longer(cols = -Banyak_Anak, names_to = "Asset_Code", values_to = "Total") %>%
+  mutate(Nama_Aset = asset_map[Asset_Code],
+         Banyak_Anak_Label = paste(Banyak_Anak, "Anak")) %>%
+  filter(Total > 0) %>%
+  group_by(Banyak_Anak) %>%
+  mutate(Proporsi = Total / sum(Total),
+         # Label hanya muncul jika > 3%, dibulatkan, ukuran kecil
+         Label_Persen = ifelse(Proporsi > 0.03, paste0(round(Proporsi * 100, 0), "%"), ""))
+
+ggplot(df_pie, aes(x = "", y = Total, fill = Nama_Aset)) +
+  geom_bar(stat = "identity", width = 1, color = "white", position = position_fill()) +
+  coord_polar("y", start = 0) +
+  facet_wrap(~Banyak_Anak_Label, ncol = 3) +
+  # Teks Persentase Kecil
+  geom_text(aes(label = Label_Persen), 
+            position = position_fill(vjust = 0.5), 
+            size = 2.2, color = "black") + 
+  scale_fill_brewer(palette = "Set3") +
+  theme_void() +
+  theme(legend.position = "right",
+        strip.text = element_text(size = 11, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +
+  labs(title = "Komposisi Jenis Aset yang Dimiliki Berdasarkan Jumlah Anak",
+       fill = "Keterangan Aset")
+
+# RINGKASAN STATISTIK
+summary_table <- df_clean %>%
+  group_by(Banyak_Anak) %>%
+  summarise(
+    Rerata_KAPITA = mean(KAPITA),
+    Median_KAPITA = median(KAPITA),
+    Porsi_Makan_Persen = mean(Food_Share),
+    Total_Sampel = n()
+  )
+
+print("Ringkasan Kesejahteraan per Kelompok Anak:")
+print(summary_table)
+```
+Berdasarkan grafik boxplot (Total Aset) tersebut, terlihat bahwa skor total aset bervariasi bergantung pada jumlah anak, di mana keluarga dengan 2 dan 3 anak memiliki median skor aset tertinggi, yakni di angka 4. Sementara itu, kelompok keluarga dengan 4 anak menunjukkan variasi skor aset yang paling lebar, menandakan ketimpangan aset yang lebih tinggi di dalam kelompok tersebut. Terdapat indikasi tren penurunan kepemilikan aset pada keluarga dengan jumlah anak yang banyak, terlihat jelas pada keluarga dengan 6 anak yang mencatatkan median skor aset terendah di angka 2 serta sebaran data yang mengelompok di nilai-nilai rendah. Selain itu, ditemukan juga satu kasus pencilan berupa keluarga tanpa anak yang memiliki skor aset maksimal, yaitu 8.
+
+Berdasarkan grafik Total Pengeluaran (EXPEND), terlihat bahwa nilai tengah (median) pengeluaran rumah tangga cenderung stabil atau sedikit meningkat seiring bertambahnya jumlah anak dari 0 hingga 5. Hal ini merupakan kondisi yang wajar karena keluarga dengan jumlah anggota yang lebih besar secara otomatis membutuhkan biaya hidup keseluruhan yang lebih tinggi untuk memenuhi kebutuhan dasar. Meskipun demikian, sebaran data yang lebar serta adanya titik-titik pencilan (outliers) menunjukkan bahwa terdapat variasi pengeluaran yang cukup tinggi antar keluarga dengan jumlah anak yang sama.
+
+Sebaliknya, grafik Pengeluaran Per Kapita memperlihatkan tren penurunan yang sangat jelas dan konsisten seiring dengan bertambahnya jumlah anak. Meskipun total pengeluaran keluarga membesar pada grafik EXPEND, grafik ini membuktikan bahwa "porsi" atau alokasi pengeluaran untuk masing-masing individu di dalam keluarga justru semakin mengecil saat jumlah anak bertambah. Fenomena ini menunjukkan adanya dilusi kesejahteraan ekonomi, di mana keluarga tanpa anak atau dengan anak yang lebih sedikit menikmati tingkat daya beli dan alokasi sumber daya per individu yang lebih tinggi dibandingkan dengan keluarga besar.
+
+Berdasarkan tren peluang dan pie chart, kita dapat mengetahui bahwa tanah, motor, dan kulkas bukanlah kebutuhan tersier karena dimiliki oleh secara keseluruhan anggota keluarga. Di lain sisi, aset lainnya, seperti water heater, komputer, AC, emas, dan mobil merupakan kebutuhan sekunder dan tersier karena pemenuhannya yang cenderung rendah pada tiap keluarga. Menariknya, walaupun tanah, motor, dan kulkas bukanlah kebutuhan tersier, terdapat tren penurunan seiring bertambahnya jumlah anak. Hal ini sesuai dengan grafik boxplot EXPEND dan per Kapita yang artinya semakin banyak anak, maka semakin banyak pula kebutuhan pokoknya sehingga daya beli keluarga untuk barang-barang tersebut cenderung menurun.
+
+# Uji Non-Parametrik
+
+## Uji Kruskal-Wallis dan Dunn Post-Hoc
+
+```{r}
+df_test <- data %>%
+  filter(Banyak_Anak %in% c(0, 1, 2, 3, 4, 5, 6)) %>%
+  mutate(Banyak_Anak = as.factor(Banyak_Anak))
+
+# Jalankan Uji Kruskal-Wallis
+ks_result <- kruskal.test(KAPITA ~ Banyak_Anak, data = df_test)
+print(ks_result)
+
+# Jika hasil signifikan (p < 0.05), lakukan Uji Dunn (Post-Hoc)
+# Ini untuk melihat kelompok mana yang benar-benar berbeda satu sama lain
+if(ks_result$p.value < 0.05) {
+  cat("\nHasil Signifikan. Melakukan Uji Lanjut (Dunn's Test)...\n")
+  posthoc <- dunnTest(KAPITA ~ Banyak_Anak, data = df_test, method = "bh") # Benjamini-Hochberg adjustment
+  print(posthoc)
+}
+
+# Visualisasi Boxplot untuk memperkuat hasil uji
+library(ggplot2)
+ggplot(df_test, aes(x = Banyak_Anak, y = KAPITA, fill = Banyak_Anak)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  theme_minimal() +
+  labs(title = "Perbandingan Pengeluaran Per Kapita",
+       subtitle = paste("Kruskal-Wallis p-value:", format.pval(ks_result$p.value)),
+       x = "Jumlah Anak", y = "KAPITA (Log Scale)")
+```
+Hasil uji Kruskal-Wallis mengonfirmasi bahwa jumlah anak berpengaruh signifikan terhadap pengeluaran per kapita keluarga ($p < 0,001$). Uji lanjut Dunn menunjukkan bahwa terdapat perbedaan paling kontras pada masa transisi dari keluarga kecil (0-1 anak) ke keluarga menengah (2 anak atau lebih). Menariknya, setelah sebuah keluarga memiliki 2 anak, penambahan ke anak ke-3 dan ke-4 tidak menunjukkan penurunan kesejahteraan yang sedrastis transisi sebelumnya (p \> 0,05). Hal ini mengindikasikan bahwa tekanan ekonomi terbesar pada 'rezeki per kapita' terjadi saat perpindahan dari memiliki 1 anak menjadi 2 anak, yang kemudian cenderung stabil namun tetap berada di level yang lebih rendah pada jumlah anak berikutnya
+
+## Uji Spearman
+
+```{r}
+# 1. Korelasi Spearman
+cor_kapita <- cor.test(data$Banyak_Anak, data$KAPITA, method = "spearman")
+cor_expend <- cor.test(data$Banyak_Anak, data$EXPEND, method = "spearman")
+
+print(paste("Anak vs KAPITA: rho =", round(cor_kapita$estimate, 3), ", p =", cor_kapita$p.value))
+print(paste("Anak vs EXPEND: rho =", round(cor_expend$estimate, 3), ", p =", cor_expend$p.value))
+```
+Terdapat korelasi yang negatif dan signifikan secara statistik antara jumlah anak dengan pengeluaran per kapita. Tanda negatif (-) menandakan hubungan terbalik: semakin banyak jumlah anak dalam suatu keluarga, maka pengeluaran per kapita (jatah per orang) cenderung semakin menurun. Kekuatan korelasi sebesar 0.316 ini tergolong dalam kategori lemah hingga sedang. Hasil ini secara matematis mengonfirmasi fenomena "dilusi kesejahteraan"
+
+Terdapat korelasi yang positif dan signifikan secara statistik antara jumlah anak dengan total pengeluaran rumah tangga. Tanda positif menandakan hubungan searah: semakin banyak anak, maka total pengeluaran keseluruhan keluarga tersebut cenderung meningkat. Namun, dengan nilai rho sebesar 0.185, kekuatan hubungan linier ini tergolong lemah.
+
+## Uji Mann-Whitney U Test untuk TIAP Kategori Aset
+
+```{r}
+asset_map <- c(
+  "R2001B" = "Kulkas", "R2001C" = "AC", "R2001D" = "Water Heater",
+  "R2001F" = "Komputer", "R2001G" = "Emas", "R2001H" = "Motor",
+  "R2001K" = "Mobil", "R2001M" = "Tanah"
+)
+
+hasil_mw <- lapply(names(asset_map), function(code) {
+  # Uji Wilcoxon (Mann-Whitney)
+  test <- wilcox.test(KAPITA ~ get(code), data = data)
+  
+  # Hitung Median
+  med_ya <- median(data$KAPITA[data[[code]] == 1], na.rm = TRUE)
+  med_tidak <- median(data$KAPITA[data[[code]] == 5], na.rm = TRUE)
+  
+  data.frame(
+    Aset = asset_map[code],
+    p_value = test$p.value,
+    Signifikan = ifelse(test$p.value < 0.05, "Ya", "Tidak"),
+    Median_Ya = round(med_ya),
+    Median_Tidak = round(med_tidak)
+  )
+})
+
+print(do.call(rbind, hasil_mw))
+```
+- Kulkas <br>
+Terdapat perbedaan kesejahteraan yang signifikan (p-value 3.00e-08). Keluarga yang memiliki kulkas terbukti memiliki tingkat ekonomi yang lebih tinggi dengan median 2.266.114 dibandingkan yang tidak memilikinya (1.387.986).
+
+- AC <br>
+Didapatkan hasil yang sangat signifikan (p-value 8.28e-61). Kepemilikan AC merupakan indikator pembeda status ekonomi yang kuat. Keluarga dengan AC memiliki median kesejahteraan (4.228.865) yang melesat jauh lebih dari dua kali lipat dibanding keluarga tanpa AC (1.712.510).
+
+- Water Heater <br>
+Perbedaan ini sangat signifikan (p-value 2.52e-11). Aset ini menunjukkan jurang pemisah ekonomi paling mencolok (gap tertinggi). Median kelompok pemilik mencapai angka tertinggi, yakni 6.445.845, dibanding yang tidak memiliki (2.126.280). Ini menandakan water heater adalah aset tersier/mewah pada sampel ini.
+
+- Komputer <br>
+Perbedaan bernilai signifikan (p-value 1.72e-42). Keluarga dengan komputer memiliki tingkat ekonomi yang secara nyata lebih tinggi (median 3.598.563) dibandingkan keluarga tanpa komputer (1.707.282)
+
+- Emas <br>
+Hasilnya signifikan (p-value 1.01e-43). Sebagai aset simpanan/investasi, kepemilikan emas membedakan kelas ekonomi dengan jelas. Pemilik emas mencatatkan median 4.157.971, berbanding 1.814.972 untuk yang tidak memilikinya.
+
+- Motor <br>
+Motor satu-satunya aset yang hasilnya TIDAK signifikan (p-value 0.341 > 0.05). Meskipun median pemilik motor (2.230.940) sedikit lebih tinggi dari yang tidak memiliki (1.961.138), secara statistik perbedaan ini dianggap tidak bermakna/hanya kebetulan. Hal ini sangat wajar terjadi karena sepeda motor kemungkinan besar sudah menjadi alat transportasi primer yang dimiliki secara merata oleh hampir semua lapisan status ekonomi dasar hingga atas.
+
+- Mobil <br>
+Terdapat perbedaan yang sangat signifikan (p-value 1.05e-47). Mobil masih menjadi aset penentu stratifikasi kelas atas; median pemilik mobil menembus 5.073.435, sangat kontras dengan non-pemilik di angka 1.851.583.
+
+- Tanah <br>
+Perbedaannya signifikan secara statistik (p-value 2.48e-21). Keluarga yang memiliki aset berupa tanah memiliki status ekonomi yang lebih baik (median 2.629.210) dibandingkan mereka yang tidak (1.565.647).
+
+
+
