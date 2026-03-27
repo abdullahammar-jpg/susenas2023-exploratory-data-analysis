@@ -1,1 +1,1 @@
-# susenas2023-exploratory-data-analysis
+# susenas2023-eda
